@@ -1,5 +1,7 @@
 from os.path import dirname, join
 
+import pdb;
+
 import numpy as np
 import pandas.io.sql as psql
 import sqlite3 as sql
@@ -24,6 +26,8 @@ with open(join(dirname(__file__), "razzies-clean.csv")) as f:
     razzies = f.read().splitlines()
 movies.loc[movies.imdbID.isin(razzies), "color"] = "purple"
 movies.loc[movies.imdbID.isin(razzies), "alpha"] = 0.9
+
+# pdb.set_trace()
 
 axis_map = {
     "Tomato Meter": "Meter",
