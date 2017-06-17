@@ -6,6 +6,7 @@ import {isString, isArray} from "core/util/types"
 
 import {LayoutDOM, LayoutDOMView} from "../layouts/layout_dom"
 import {Title} from "../annotations/title"
+import {LinearScale} from "../scales/linear_scale"
 import {Toolbar} from "../tools/toolbar"
 import {ToolEvents} from "../tools/tool_events"
 import {PlotCanvas, PlotCanvasView} from "./plot_canvas"
@@ -28,10 +29,11 @@ export class PlotView extends LayoutDOMView
   render: () ->
     super()
 
-    if @model.sizing_mode is 'scale_both'
+    if @model.sizing_mode == 'scale_both'
       [width, height] = @get_width_height()
       @solver.suggest_value(@model._width, width)
       @solver.suggest_value(@model._height, height)
+      @solver.update_variables()
       @el.style.position = 'absolute'
       @el.style.left = "#{@model._dom_left.value}px"
       @el.style.top = "#{@model._dom_top.value}px"
@@ -39,25 +41,25 @@ export class PlotView extends LayoutDOMView
       @el.style.height = "#{@model._height.value}px"
 
   get_width_height: () ->
-      parent_height = @el.parentNode.clientHeight
-      parent_width = @el.parentNode.clientWidth
+    parent_height = @el.parentNode.clientHeight
+    parent_width = @el.parentNode.clientWidth
 
-      ar = @model.get_aspect_ratio()
+    ar = @model.get_aspect_ratio()
 
-      new_width_1 = parent_width
-      new_height_1 = parent_width / ar
+    new_width_1 = parent_width
+    new_height_1 = parent_width / ar
 
-      new_width_2 = parent_height * ar
-      new_height_2 = parent_height
+    new_width_2 = parent_height * ar
+    new_height_2 = parent_height
 
-      if new_width_1 < new_width_2
-        width = new_width_1
-        height = new_height_1
-      else
-        width = new_width_2
-        height = new_height_2
+    if new_width_1 < new_width_2
+      width = new_width_1
+      height = new_height_1
+    else
+      width = new_width_2
+      height = new_height_2
 
-      return [width, height]
+    return [width, height]
 
   get_height: () ->
     return @model._width.value / @model.get_aspect_ratio()
@@ -66,7 +68,11 @@ export class PlotView extends LayoutDOMView
     return @model._height.value * @model.get_aspect_ratio()
 
   save: (name) ->
-    (view for view in values(@child_views) when view instanceof PlotCanvasView)[0].save(name)
+    @plot_canvas_view.save(name)
+
+  @getters {
+    plot_canvas_view: () -> (view for view in values(@child_views) when view instanceof PlotCanvasView)[0]
+  }
 
 export class Plot extends LayoutDOM
   type: 'Plot'
@@ -326,8 +332,8 @@ export class Plot extends LayoutDOM
       y_range:           [ p.Instance                         ]
       extra_y_ranges:    [ p.Any,      {}                     ] # TODO (bev)
 
-      x_mapper_type:     [ p.String,   'auto'                 ] # TODO (bev)
-      y_mapper_type:     [ p.String,   'auto'                 ] # TODO (bev)
+      x_scale:           [ p.Instance, () -> new LinearScale() ]
+      y_scale:           [ p.Instance, () -> new LinearScale() ]
 
       tool_events:       [ p.Instance, () -> new ToolEvents() ]
 
@@ -336,8 +342,8 @@ export class Plot extends LayoutDOM
       lod_threshold:     [ p.Number,   2000                   ]
       lod_timeout:       [ p.Number,   500                    ]
 
-      webgl:             [ p.Bool,     false                  ]
       hidpi:             [ p.Bool,     true                   ]
+      output_backend:    [ p.OutputBackend, "canvas"          ]
 
       min_border:        [ p.Number,   5                      ]
       min_border_top:    [ p.Number,   null                   ]
@@ -363,6 +369,15 @@ export class Plot extends LayoutDOM
       for tool in @toolbar.tools
         renderers = renderers.concat(tool.synthetic_renderers)
       return renderers
+    x_mapper_type: () ->
+      log.warning("x_mapper_type attr is deprecated, use x_scale")
+      return @x_scale
+    y_mapper_type: () ->
+      log.warning("y_mapper_type attr is deprecated, use y_scale")
+      return @y_scale
+    webgl: () ->
+      log.warning("webgl attr is deprecated, use output_backend")
+      return @output_backend == "webgl"
   }
 
 register_with_event(UIEvent, Plot)

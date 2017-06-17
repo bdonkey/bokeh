@@ -8,6 +8,8 @@ import {div, canvas} from "core/dom"
 import {isEqual} from "core/util/eq"
 import {fixup_ctx, get_scale_ratio} from "core/util/canvas"
 
+import * as canvas2svg from "canvas2svg"
+
 # fixes up a problem with some versions of IE11
 # ref: http://stackoverflow.com/questions/22062313/imagedata-set-in-internetexplorer
 if window.CanvasPixelArray?
@@ -24,23 +26,25 @@ export class CanvasView extends DOMView
     @map_el      = if @model.map then @el.appendChild(div({class: "bk-canvas-map"})) else null
     @events_el   = @el.appendChild(div({class: "bk-canvas-events"}))
     @overlays_el = @el.appendChild(div({class: "bk-canvas-overlays"}))
-    @canvas_el   = @el.appendChild(canvas({class: "bk-canvas"}))
 
-    # create the canvas context that gets passed around for drawing
+    switch @model.output_backend
+      when "canvas", "webgl"
+        @canvas_el = @el.appendChild(canvas({class: "bk-canvas"}))
+        @_ctx = @canvas_el.getContext('2d')
+      when "svg"
+        @_ctx = new canvas2svg()
+        @canvas_el = @el.appendChild(@_ctx.getSvg())
+
     @ctx = @get_ctx()
-
     # work around canvas incompatibilities
     fixup_ctx(@ctx)
 
-    @set_dims([@model.initial_width, @model.initial_height], false)
     logger.debug("CanvasView initialized")
 
-    @connect(@solver.layout_reset, () => @_add_constraints())
+  # Method exists so that context can be stubbed in unit tests
+  get_ctx: () -> return @_ctx
 
-  get_canvas_element: () -> @canvas_el
-
-  get_ctx: () ->
-    return @canvas_el.getContext('2d')
+  get_canvas_element: () -> return @canvas_el
 
   prepare_canvas: () ->
     # Ensure canvas has the correct size, taking HIDPI into account
@@ -50,7 +54,7 @@ export class CanvasView extends DOMView
     @el.style.width = "#{width}px"
     @el.style.height = "#{height}px"
 
-    pixel_ratio = get_scale_ratio(@ctx, @model.use_hidpi)
+    pixel_ratio = get_scale_ratio(@ctx, @model.use_hidpi, @model.output_backend)
     @model.pixel_ratio = pixel_ratio
 
     @canvas_el.style.width = "#{width}px"
@@ -60,43 +64,26 @@ export class CanvasView extends DOMView
 
     logger.debug("Rendering CanvasView with width: #{width}, height: #{height}, pixel ratio: #{pixel_ratio}")
 
-  set_dims: (dims, trigger=true) ->
-    @requested_width = dims[0]
-    @requested_height = dims[1]
-    @update_constraints(trigger)
-    return
-
-  update_constraints: (trigger) ->
-    requested_width = @requested_width
-    requested_height = @requested_height
-
-    if not requested_width? or not requested_height?
+  set_dims: ([width, height]) ->
+    # XXX: for whatever reason we need to protect against those nonsense values,
+    #      that appear in the middle of updating layout. Otherwise we would get
+    #      all possible errors from the layout solver.
+    if width == 0 or height == 0
       return
 
-    MIN_SIZE = 50
-    if requested_width < MIN_SIZE or requested_height < MIN_SIZE
-      return
+    if @_width_constraint? and @solver.has_constraint(@_width_constraint)
+      @solver.remove_constraint(@_width_constraint)
 
-    if isEqual(@last_requested_dims, [requested_width, requested_height])
-      return
+    if @_height_constraint? and @solver.has_constraint(@_height_constraint)
+      @solver.remove_constraint(@_height_constraint)
 
-    if @_width_constraint?
-      @solver.remove_constraint(@_width_constraint, true)
-    if @_height_constraint?
-      @solver.remove_constraint(@_height_constraint, true)
-
-    @_add_constraints()
-
-    @last_requested_dims = [requested_width, requested_height]
-
-    @solver.update_variables(trigger)
-
-  _add_constraints: () ->
-    @_width_constraint = EQ(@model._width, -@requested_width)
+    @_width_constraint = EQ(@model._width, -width)
     @solver.add_constraint(@_width_constraint)
 
-    @_height_constraint = EQ(@model._height, -@requested_height)
+    @_height_constraint = EQ(@model._height, -height)
     @solver.add_constraint(@_height_constraint)
+
+    @solver.update_variables()
 
 export class Canvas extends LayoutCanvas
   type: 'Canvas'
@@ -108,6 +95,7 @@ export class Canvas extends LayoutCanvas
     initial_height: [ p.Number         ]
     use_hidpi:      [ p.Boolean, true  ]
     pixel_ratio:    [ p.Number,  1     ]
+    output_backend: [ p.OutputBackend, "canvas"]
   }
 
   initialize: (attrs, options) ->

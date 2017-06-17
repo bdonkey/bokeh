@@ -1,54 +1,44 @@
 import * as p from "core/properties"
+import {empty, prepend, nbsp, button} from "core/dom"
 
-import {build_views} from "core/build_views"
+import {build_views, remove_views} from "core/build_views"
 import {Widget, WidgetView} from "./widget"
-import template from "./button_template"
-
 
 export class AbstractButtonView extends WidgetView
-  events:
-    "click": "change_input"
-  template: template
 
   initialize: (options) ->
     super(options)
     @icon_views = {}
-    @connect(@model.change, @render)
+    @connect(@model.change, () -> @render())
     @render()
 
   remove: () ->
-    for _, view of @icon_views
-      view.remove()
-    @icon_views = {}
-
+    remove_views(@icon_views)
     super()
+
+  template: () ->
+    return button({
+      type: "button",
+      disabled: @model.disabled,
+      class: ["bk-bs-btn", "bk-bs-btn-#{@model.button_type}"],
+    }, @model.label)
 
   render: () ->
     super()
 
+    empty(@el)
+    @buttonEl = buttonEl = @template()
+    @el.appendChild(buttonEl)
+
     icon = @model.icon
     if icon?
       build_views(@icon_views, [icon], {parent: @})
-      for own key, val of @icon_views
-        val.el.parentNode?.removeChild(val.el)
-
-    @$el.empty()
-    html = @template(@model.attributes)
-    @el.appendChild(html)
-
-    $button = @$el.find('button')
-
-    if icon?
-      $button.prepend("&nbsp;")
-      $button.prepend(@icon_views[icon.id].$el)
-
-    $button.prop("disabled", @model.disabled)
+      prepend(buttonEl, @icon_views[icon.id].el, nbsp)
 
     return @
 
   change_input: () ->
     @model.callback?.execute(@model)
-
 
 export class AbstractButton extends Widget
   type: "AbstractButton"

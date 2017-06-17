@@ -1,4 +1,3 @@
-import * as $ from "jquery"
 import "jquery-ui/sortable"
 import * as SlickGrid from "slick_grid/slick.grid"
 import * as RowSelectionModel from "slick_grid/plugins/slick.rowselectionmodel"
@@ -13,13 +12,6 @@ import {TableWidget} from "./table_widget"
 import {WidgetView} from "./widget"
 
 export DTINDEX_NAME = "__bkdt_internal_index__"
-
-wait_for_element = (el, fn) ->
-  handler = () =>
-    if $.contains(document.documentElement, el)
-      clearInterval(interval)
-      fn()
-  interval = setInterval(handler, 50)
 
 export class DataProvider
 
@@ -93,19 +85,23 @@ export class DataTableView extends WidgetView
 
   initialize: (options) ->
     super(options)
-    wait_for_element(@el, () => @render())
+    @in_selection_update = false
+
+  connect_signals: () ->
     @connect(@model.change, () => @render())
     @connect(@model.source.properties.data.change, () => @updateGrid())
     @connect(@model.source.streaming, () => @updateGrid())
     @connect(@model.source.patching, () => @updateGrid())
     @connect(@model.source.properties.selected.change, () => @updateSelection())
 
-    @in_selection_update = false
-
   updateGrid: () ->
     @data.constructor(@model.source)
     @grid.invalidate()
     @grid.render()
+
+    # This is only needed to call @_tell_document_about_change()
+    @model.source.data = @model.source.data
+    @model.source.change.emit()
 
   updateSelection: () ->
     if @in_selection_update
@@ -155,7 +151,7 @@ export class DataTableView extends WidgetView
 
     options =
       enableCellNavigation: @model.selectable != false
-      enableColumnReorder: true
+      enableColumnReorder: @model.reorderable
       forceFitColumns: @model.fit_columns
       autoHeight: @model.height == "auto"
       multiColumnSort: @model.sortable
@@ -203,6 +199,7 @@ export class DataTable extends TableWidget
       columns:             [ p.Array,  []    ]
       fit_columns:         [ p.Bool,   true  ]
       sortable:            [ p.Bool,   true  ]
+      reorderable:         [ p.Bool,   true  ]
       editable:            [ p.Bool,   false ]
       selectable:          [ p.Bool,   true  ]
       row_headers:         [ p.Bool,   true  ]

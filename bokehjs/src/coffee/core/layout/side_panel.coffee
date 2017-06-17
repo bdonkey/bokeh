@@ -143,7 +143,7 @@ _align_lookup_positive = {
 #         height or width. Extending to full height or width means it's easy to
 #         calculate mid-way for alignment.
 
-export update_constraints = (view) ->
+export update_panel_constraints = (view) ->
   if view.model.props.visible? and not view.model.visible
     # if not visible, avoid applying constraints until visible again
     return
@@ -158,12 +158,15 @@ export update_constraints = (view) ->
   # Constrain Full Dimension - link it to the plot (only needs to be done once)
   # If axis is on the left, then it is the full height of the plot.
   # If axis is on the top, then it is the full width of the plot.
-  constraint = switch view.model.panel.side
+
+  if view._full_constraint? and s.has_constraint(view._full_constraint)
+    s.remove_constraint(view._full_constraint)
+
+  view._full_constraint = switch view.model.panel.side
     when 'above', 'below' then EQ(view.model.panel._width,  [-1, view.plot_model.canvas._width])
     when 'left', 'right'  then EQ(view.model.panel._height, [-1, view.plot_model.canvas._height])
 
-  if not s.has_constraint(constraint)
-    s.add_constraint(constraint)
+  s.add_constraint(view._full_constraint)
 
 export class SidePanel extends LayoutCanvas
 
