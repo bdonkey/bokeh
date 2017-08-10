@@ -28,12 +28,12 @@ import uuid
 # Bokeh imports
 from .core.state import State
 from .document import Document
-from .embed import autoload_server, notebook_div, file_html
+from .embed import server_document, notebook_div, file_html
 from .layouts import gridplot, GridSpec ; gridplot, GridSpec
+from .models import Plot
 from .resources import INLINE
 import bokeh.util.browser as browserlib  # full import needed for test mocking to work
 from .util.dependencies import import_required, detect_phantomjs
-from .util.deprecation import deprecated
 from .util.notebook import get_comms, load_notebook, publish_display_data, watch_server_cells
 from .util.string import decode_utf8
 from .util.serialization import make_id
@@ -302,7 +302,8 @@ def _show_notebook_app_with_state(app, state, app_path, notebook_url):
     loop = IOLoop.current()
     server = Server({app_path: app}, io_loop=loop, port=0,  allow_websocket_origin=[notebook_url])
     server.start()
-    script = autoload_server(url='http://127.0.0.1:%d%s' % (server.port, app_path))
+    url = 'http://%s:%d%s' % (notebook_url.split(':')[0], server.port, app_path)
+    script = server_document(url)
     display(HTML(_server_cell(server, script)))
 
 def _show_with_state(obj, state, browser, new, notebook_handle=False):
@@ -373,10 +374,6 @@ def save(obj, filename=None, resources=None, title=None, state=None, **kwargs):
         str: the filename where the HTML file is saved.
 
     '''
-
-    if 'validate' in kwargs:
-        deprecated((0, 12, 5), 'The `validate` keyword argument', 'None', """
-        The keyword argument has been removed and the document will always be validated.""")
 
     if state is None:
         state = _state
@@ -487,7 +484,7 @@ def push_notebook(document=None, state=None, handle=None):
             handle = show(plot, notebook_handle=True)
 
             # Update the plot title in the earlier cell
-            plot.title = "New Title"
+            plot.title.text = "New Title"
             push_notebook(handle=handle)
 
     '''
@@ -600,13 +597,34 @@ def _wait_until_render_complete(driver):
         if len(severe_errors) > 0:
             logger.warn("There were severe browser errors that may have affected your export: {}".format(severe_errors))
 
+def _save_layout_html(obj, resources=INLINE, **kwargs):
+    resize = False
+    if kwargs.get('height') is not None or kwargs.get('width') is not None:
+        if not isinstance(obj, Plot):
+            warnings.warn("Export method called with height or width kwargs on a non-Plot layout. The size values will be ignored.")
+        else:
+            resize = True
+            old_height = obj.plot_height
+            old_width = obj.plot_width
+            obj.plot_height = kwargs.get('height', old_height)
+            obj.plot_width = kwargs.get('width', old_width)
+
+    html_path = tempfile.NamedTemporaryFile(suffix=".html").name
+    save(obj, filename=html_path, resources=resources, title="")
+
+    if resize:
+        obj.plot_height = old_height
+        obj.plot_width = old_width
+
+    return html_path
+
 def _crop_image(image, left=0, top=0, right=0, bottom=0, **kwargs):
     '''Crop the border from the layout'''
     cropped_image = image.crop((left, top, right, bottom))
 
     return cropped_image
 
-def _get_screenshot_as_png(obj, driver):
+def _get_screenshot_as_png(obj, driver=None, **kwargs):
     webdriver = import_required('selenium.webdriver',
                                 'To use bokeh.io.export_png you need selenium ' +
                                 '("conda install -c bokeh selenium" or "pip install selenium")')
@@ -617,15 +635,12 @@ def _get_screenshot_as_png(obj, driver):
     # assert that phantomjs is in path for webdriver
     detect_phantomjs()
 
-    html_path = tempfile.NamedTemporaryFile(suffix=".html").name
-    save(obj, filename=html_path, resources=INLINE, title="")
+    html_path = _save_layout_html(obj, **kwargs)
 
-    if driver is None:
-        web_driver = webdriver.PhantomJS(service_log_path=os.path.devnull)
-    else:
-        web_driver = driver
+    web_driver = driver if driver is not None else webdriver.PhantomJS(service_log_path=os.path.devnull)
 
     web_driver.get("file:///" + html_path)
+    web_driver.maximize_window()
 
     ## resize for PhantomJS compat
     web_driver.execute_script("document.body.style.width = '100%';")
@@ -645,7 +660,7 @@ def _get_screenshot_as_png(obj, driver):
 
     return cropped_image
 
-def export_png(obj, filename=None):
+def export_png(obj, filename=None, height=None, width=None, webdriver=None):
     ''' Export the LayoutDOM object or document as a PNG.
 
     If the filename is not given, it is derived from the script name
@@ -658,6 +673,15 @@ def export_png(obj, filename=None):
         filename (str, optional) : filename to save document under (default: None)
             If None, infer from the filename.
 
+        height (int) : the desired height of the exported layout obj only if
+            it's a Plot instance. Otherwise the height kwarg is ignored.
+
+        width (int) : the desired width of the exported layout obj only if
+            it's a Plot instance. Otherwise the width kwarg is ignored.
+
+        webdriver (selenium.webdriver) : a selenium webdriver instance to use
+            to export the image.
+
     Returns:
         filename (str) : the filename where the static file is saved.
 
@@ -669,7 +693,8 @@ def export_png(obj, filename=None):
         Glyphs that are rendered via webgl won't be included in the generated PNG.
 
     '''
-    image = _get_screenshot_as_png(obj, None)
+
+    image = _get_screenshot_as_png(obj, height=height, width=width, driver=webdriver)
 
     if filename is None:
         filename = _detect_filename("png")
@@ -678,22 +703,16 @@ def export_png(obj, filename=None):
 
     return os.path.abspath(filename)
 
-def _get_svgs(obj, driver):
+def _get_svgs(obj, driver=None, **kwargs):
     webdriver = import_required('selenium.webdriver',
                                 'To use bokeh.io.export_svgs you need selenium ' +
                                 '("conda install -c bokeh selenium" or "pip install selenium")')
     # assert that phantomjs is in path for webdriver
     detect_phantomjs()
 
-    if driver is None:
-        web_driver = webdriver.PhantomJS(service_log_path=os.path.devnull)
-    else:
-        web_driver = driver
+    html_path = _save_layout_html(obj, **kwargs)
 
-    html_path = tempfile.NamedTemporaryFile(suffix=".html").name
-    save(obj, filename=html_path, resources=INLINE, title="")
-
-    web_driver = webdriver.PhantomJS(service_log_path=os.path.devnull)
+    web_driver = driver if driver is not None else webdriver.PhantomJS(service_log_path=os.path.devnull)
     web_driver.get("file:///" + html_path)
 
     _wait_until_render_complete(web_driver)
@@ -715,7 +734,7 @@ def _get_svgs(obj, driver):
 
     return svgs
 
-def export_svgs(obj, filename=None):
+def export_svgs(obj, filename=None, height=None, width=None, webdriver=None):
     ''' Export the SVG-enabled plots within a layout. Each plot will result
     in a distinct SVG file.
 
@@ -728,6 +747,15 @@ def export_svgs(obj, filename=None):
         filename (str, optional) : filename to save document under (default: None)
             If None, infer from the filename.
 
+        height (int) : the desired height of the exported layout obj only if
+            it's a Plot instance. Otherwise the height kwarg is ignored.
+
+        width (int) : the desired width of the exported layout obj only if
+            it's a Plot instance. Otherwise the width kwarg is ignored.
+
+        webdriver (selenium.webdriver) : a selenium webdriver instance to use
+            to export the image.
+
     Returns:
         filenames (list(str)) : the list of filenames where the SVGs files
             are saved.
@@ -737,7 +765,7 @@ def export_svgs(obj, filename=None):
         aspect ratios. It is recommended to use the default ``fixed`` sizing mode.
 
     '''
-    svgs = _get_svgs(obj, None)
+    svgs = _get_svgs(obj, height=height, width=width, driver=webdriver)
 
     if len(svgs) == 0:
         logger.warn("No SVG Plots were found.")

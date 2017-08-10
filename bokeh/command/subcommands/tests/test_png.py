@@ -36,6 +36,21 @@ def test_args():
             default=None,
         )),
 
+
+        ('--height', dict(
+            metavar='HEIGHT',
+            type=int,
+            help="The desired height of the exported layout obj only if it's a Plot instance",
+            default=None,
+        )),
+
+        ('--width', dict(
+            metavar='WIDTH',
+            type=int,
+            help="The desired width of the exported layout obj only if it's a Plot instance",
+            default=None,
+        )),
+
         (('-o', '--output'), dict(
             metavar='FILENAME',
             action='append',
@@ -61,12 +76,15 @@ def test_no_script(capsys):
             too_few = "too few arguments"
         else:
             too_few = "the following arguments are required: DIRECTORY-OR-SCRIPT"
-        assert err == """usage: bokeh png [-h] [-o FILENAME] [--args ...]
+        assert err == """usage: bokeh png [-h] [--height HEIGHT] [--width WIDTH] [-o FILENAME]
+                 [--args ...]
                  DIRECTORY-OR-SCRIPT [DIRECTORY-OR-SCRIPT ...]
 bokeh png: error: %s
 """ % (too_few)
         assert out == ""
 
+@pytest.mark.unit
+@pytest.mark.selenium
 def test_basic_script(capsys):
     def run(dirname):
         with WorkingDir(dirname):
@@ -80,6 +98,8 @@ def test_basic_script(capsys):
     with_directory_contents({ 'scatter.py' : basic_scatter_script },
                             run)
 
+@pytest.mark.unit
+@pytest.mark.selenium
 def test_basic_script_with_output_after(capsys):
     def run(dirname):
         with WorkingDir(dirname):
@@ -93,6 +113,8 @@ def test_basic_script_with_output_after(capsys):
     with_directory_contents({ 'scatter.py' : basic_scatter_script },
                             run)
 
+@pytest.mark.unit
+@pytest.mark.selenium
 def test_basic_script_with_output_before(capsys):
     def run(dirname):
         with WorkingDir(dirname):
@@ -104,4 +126,21 @@ def test_basic_script_with_output_before(capsys):
         assert set(["foo.png", "scatter.py"]) == set(os.listdir(dirname))
 
     with_directory_contents({ 'scatter.py' : basic_scatter_script },
+                            run)
+
+@pytest.mark.unit
+@pytest.mark.selenium
+def test_basic_script_with_multiple_png_plots(capsys):
+    def run(dirname):
+        with WorkingDir(dirname):
+            main(["bokeh", "png", "scatter1.py", "scatter2.py", "scatter3.py"])
+        out, err = capsys.readouterr()
+        assert err == ""
+        assert out == ""
+
+        assert set(["scatter1.png", "scatter2.png", "scatter3.png", "scatter1.py", "scatter2.py", "scatter3.py"]) == set(os.listdir(dirname))
+
+    with_directory_contents({ 'scatter1.py' : basic_scatter_script,
+                              'scatter2.py' : basic_scatter_script,
+                              'scatter3.py' : basic_scatter_script, },
                             run)

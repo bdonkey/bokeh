@@ -31,9 +31,23 @@ widgets, or other content it desires. The application can also set up
 callbacks, to run periodically or to run when the document changes.
 
 Applications are represented by the ``Application`` class. This class is
-little more than a list of ``Handler`` instances. Handlers can be created
-in lots of ways; from JSON files, from Python functions, from Python files,
-and perhaps many more ways in the future.
+contains list of ``Handler`` instances and optional metadata. Handlers
+can be created in lots of ways; from JSON files, from Python functions, from
+Python files, and perhaps many more ways in the future.  The optional metadata
+is available as a json blob via the ``/metadata`` endpoint.  For example,
+creating a ``Application`` instance with::
+
+    Application(metadata=dict(hi="hi", there="there"))
+
+will have ``http://server/myapp/metadata`` return (``application/json``)::
+
+  {
+      "data": {
+          "hi": "hi",
+          "there": "there"
+      },
+      "url": "/myapp"
+  }
 
 Around each application, the server creates an ``ApplicationContext``. Its
 primary role is to hold the set of sessions for the application.
@@ -215,8 +229,6 @@ triple-check that the lock is held.**
 
 Session Security
 ^^^^^^^^^^^^^^^^
-
-For background on session IDs, refer to :ref:`userguide_cli_serve_session_id_options`.
 
 We rely on session IDs being cryptographically random and difficult to guess.
 If an attacker knows someone's session ID, they can eavesdrop on or modify

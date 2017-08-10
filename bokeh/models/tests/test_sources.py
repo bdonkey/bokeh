@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import sys
 import unittest
 from unittest import skipIf
 import warnings
@@ -33,7 +34,7 @@ class TestColumnDataSource(unittest.TestCase):
         self.assertEquals(set(ds.column_names), set(data.keys()))
 
     @skipIf(not is_pandas, "pandas not installed")
-    def test_init_pandas_arg(self):
+    def test_init_dataframe_arg(self):
         data = dict(a=[1, 2], b=[2, 3])
         df = pd.DataFrame(data)
         ds = ColumnDataSource(df)
@@ -46,7 +47,7 @@ class TestColumnDataSource(unittest.TestCase):
         self.assertEqual(set(ds.column_names) - set(df.columns), set(["index"]))
 
     @skipIf(not is_pandas, "pandas not installed")
-    def test_init_pandas_data_kwarg(self):
+    def test_init_dataframe_data_kwarg(self):
         data = dict(a=[1, 2], b=[2, 3])
         df = pd.DataFrame(data)
         ds = ColumnDataSource(data=df)
@@ -57,6 +58,47 @@ class TestColumnDataSource(unittest.TestCase):
         self.assertIsInstance(ds.data['index'], np.ndarray)
         self.assertEquals([0, 1], list(ds.data['index']))
         self.assertEqual(set(ds.column_names) - set(df.columns), set(["index"]))
+
+    @skipIf(not is_pandas, "pandas not installed")
+    @skipIf(sys.version_info[:2]==(3,4), "only old brokeb pandas available for 3.4")
+    def test_init_groupby_arg(self):
+        from bokeh.sampledata.autompg import autompg as df
+        group = df.groupby(('origin', 'cyl'))
+        ds = ColumnDataSource(group)
+        s = group.describe()
+        self.assertTrue(len(ds.column_names)) == 41
+        self.assertIsInstance(ds.data['origin_cyl'], np.ndarray)
+        for key in s.columns.values:
+            k2 = "_".join(key)
+            self.assertIsInstance(ds.data[k2], pd.Series)
+            self.assertEquals(list(s[key]), list(ds.data[k2]))
+
+    @skipIf(not is_pandas, "pandas not installed")
+    @skipIf(sys.version_info[:2]==(3,4), "only old brokeb pandas available for 3.4")
+    def test_init_groupby_data_kwarg(self):
+        from bokeh.sampledata.autompg import autompg as df
+        group = df.groupby(('origin', 'cyl'))
+        ds = ColumnDataSource(data=group)
+        s = group.describe()
+        self.assertTrue(len(ds.column_names)) == 41
+        self.assertIsInstance(ds.data['origin_cyl'], np.ndarray)
+        for key in s.columns.values:
+            k2 = "_".join(key)
+            self.assertIsInstance(ds.data[k2], pd.Series)
+            self.assertEquals(list(s[key]), list(ds.data[k2]))
+
+    @skipIf(not is_pandas, "pandas not installed")
+    def test_init_groupby_with_None_subindex_name(self):
+        df = pd.DataFrame({"A": [1, 2, 3, 4] * 2, "B": [10, 20, 30, 40] * 2, "C": range(8)})
+        group = df.groupby(['A', [10, 20, 30, 40] * 2])
+        ds = ColumnDataSource(data=group)
+        s = group.describe()
+        self.assertTrue(len(ds.column_names)) == 41
+        self.assertIsInstance(ds.data['index'], np.ndarray)
+        for key in s.columns.values:
+            k2 = "_".join(key)
+            self.assertIsInstance(ds.data[k2], pd.Series)
+            self.assertEquals(list(s[key]), list(ds.data[k2]))
 
     def test_add_with_name(self):
         ds = ColumnDataSource()
@@ -119,17 +161,33 @@ class TestColumnDataSource(unittest.TestCase):
             str(cm.exception).startswith("stream(...) only supports 1d sequences, got ndarray with size (")
         )
 
-    def test_stream_good_data(self):
+    def test__stream_good_data(self):
         ds = ColumnDataSource(data=dict(a=[10], b=[20]))
         ds._document = "doc"
         stuff = {}
         mock_setter = object()
+
         def mock(*args, **kw):
             stuff['args'] = args
             stuff['kw'] = kw
         ds.data._stream = mock
-        ds.stream(dict(a=[11, 12], b=[21, 22]), "foo", mock_setter)
+        # internal implementation of stream
+        ds._stream(dict(a=[11, 12], b=[21, 22]), "foo", mock_setter)
         self.assertEqual(stuff['args'], ("doc", ds, dict(a=[11, 12], b=[21, 22]), "foo", mock_setter))
+        self.assertEqual(stuff['kw'], {})
+
+    def test_stream_good_data(self):
+        ds = ColumnDataSource(data=dict(a=[10], b=[20]))
+        ds._document = "doc"
+        stuff = {}
+
+        def mock(*args, **kw):
+            stuff['args'] = args
+            stuff['kw'] = kw
+        ds.data._stream = mock
+        # public implementation of stream
+        ds._stream(dict(a=[11, 12], b=[21, 22]), "foo")
+        self.assertEqual(stuff['args'], ("doc", ds, dict(a=[11, 12], b=[21, 22]), "foo", None))
         self.assertEqual(stuff['kw'], {})
 
     def test_patch_bad_columns(self):

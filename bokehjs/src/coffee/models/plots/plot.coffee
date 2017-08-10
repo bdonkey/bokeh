@@ -1,4 +1,4 @@
-import {WEAK_EQ, GE, EQ, Strength} from "core/layout/solver"
+import {WEAK_EQ, GE, EQ} from "core/layout/solver"
 import {logger} from "core/logging"
 import * as p from "core/properties"
 import {extend, values, clone} from "core/util/object"
@@ -8,7 +8,6 @@ import {LayoutDOM, LayoutDOMView} from "../layouts/layout_dom"
 import {Title} from "../annotations/title"
 import {LinearScale} from "../scales/linear_scale"
 import {Toolbar} from "../tools/toolbar"
-import {ToolEvents} from "../tools/tool_events"
 import {PlotCanvas, PlotCanvasView} from "./plot_canvas"
 
 import {ColumnDataSource} from "../sources/column_data_source"
@@ -169,20 +168,11 @@ export class Plot extends LayoutDOM
     return renderer
 
   add_tools: (tools...) ->
-    new_tools = for tool in tools
+    for tool in tools
       if tool.overlay?
         @add_renderers(tool.overlay)
 
-      if tool.plot?
-        tool
-      else
-        # XXX: this part should be unnecessary, but you can't configure tool.plot
-        # after construting a tool. When this limitation is lifted, remove this code.
-        attrs = clone(tool.attributes)
-        attrs.plot = this
-        new tool.constructor(attrs)
-
-    @toolbar.tools = @toolbar.tools.concat(new_tools)
+    @toolbar.tools = @toolbar.tools.concat(tools)
 
   get_aspect_ratio: () ->
     return @width / @height
@@ -194,14 +184,11 @@ export class Plot extends LayoutDOM
       children = [@toolbar, @plot_canvas]
     return children
 
-  get_edit_variables: () ->
-    edit_variables = super()
-    if @sizing_mode is 'scale_both'
-      edit_variables.push({edit_variable: @_width, strength: Strength.strong})
-      edit_variables.push({edit_variable: @_height, strength: Strength.strong})
-    for child in @get_layoutable_children()
-      edit_variables = edit_variables.concat(child.get_edit_variables())
-    return edit_variables
+  get_editables: () ->
+    editables = super()
+    if @sizing_mode == 'scale_both'
+      editables = editables.concat([@_width, @_height])
+    return editables
 
   get_constraints: () ->
     constraints = super()
@@ -220,7 +207,7 @@ export class Plot extends LayoutDOM
 
 
       # (1) plot_height = plot_canvas_height + toolbar_height | plot_width = plot_canvas_width + toolbar_width
-      if @toolbar_sticky is true
+      if @toolbar_sticky
         constraints.push(EQ(@_sizeable, [-1, @plot_canvas._sizeable]))
       else
         constraints.push(EQ(@_sizeable, [-1, @plot_canvas._sizeable], [-1, @toolbar._sizeable]))
@@ -233,27 +220,27 @@ export class Plot extends LayoutDOM
 
       if @toolbar_location is 'above'
         # (3) stack: plot_canvas._top = toolbar._dom_top + toolbar._height
-        sticky_edge = if @toolbar_sticky is true then @plot_canvas._top else @plot_canvas._dom_top
+        sticky_edge = if @toolbar_sticky then @plot_canvas._top else @plot_canvas._dom_top
         constraints.push(EQ(sticky_edge, [-1, @toolbar._dom_top], [-1, @toolbar._height]))
 
       if @toolbar_location is 'below'
         # (3) stack: plot_canvas._dom_top = toolbar._bottom - toolbar._height
-        if @toolbar_sticky is false
+        if not @toolbar_sticky
           constraints.push(EQ(@toolbar._dom_top, [-1, @plot_canvas._height], @toolbar._bottom, [-1, @toolbar._height]))
-        if @toolbar_sticky is true
+        else
           constraints.push(GE(@plot_canvas.below_panel._height, [-1, @toolbar._height]))
           constraints.push(WEAK_EQ(@toolbar._dom_top, [-1, @plot_canvas._height], @plot_canvas.below_panel._height))
 
       if @toolbar_location is 'left'
         # (3) stack: plot_canvas._dom_left = toolbar._dom_left + toolbar._width
-        sticky_edge = if @toolbar_sticky is true then @plot_canvas._left else @plot_canvas._dom_left
+        sticky_edge = if @toolbar_sticky then @plot_canvas._left else @plot_canvas._dom_left
         constraints.push(EQ(sticky_edge, [-1, @toolbar._dom_left], [-1, @toolbar._width]))
 
       if @toolbar_location is 'right'
         # (3) stack: plot_canvas._dom_left = plot_canvas._right - toolbar._width
-        if @toolbar_sticky is false
+        if not @toolbar_sticky
           constraints.push(EQ(@toolbar._dom_left, [-1, @plot_canvas._width], @toolbar._right, [-1, @toolbar._width]))
-        if @toolbar_sticky is true
+        else
           constraints.push(GE(@plot_canvas.right_panel._width, [-1, @toolbar._width]))
           constraints.push(WEAK_EQ(@toolbar._dom_left, [-1, @plot_canvas._width], @plot_canvas.right_panel._width))
 
@@ -272,10 +259,6 @@ export class Plot extends LayoutDOM
       # If we don't have a toolbar just set them
       constraints.push(EQ(@_width, [-1, @plot_canvas._width]))
       constraints.push(EQ(@_height, [-1, @plot_canvas._height]))
-
-    # Get all the child constraints
-    for child in @get_layoutable_children()
-      constraints = constraints.concat(child.get_constraints())
 
     return constraints
 
@@ -335,8 +318,6 @@ export class Plot extends LayoutDOM
       x_scale:           [ p.Instance, () -> new LinearScale() ]
       y_scale:           [ p.Instance, () -> new LinearScale() ]
 
-      tool_events:       [ p.Instance, () -> new ToolEvents() ]
-
       lod_factor:        [ p.Number,   10                     ]
       lod_interval:      [ p.Number,   300                    ]
       lod_threshold:     [ p.Number,   2000                   ]
@@ -378,6 +359,9 @@ export class Plot extends LayoutDOM
     webgl: () ->
       log.warning("webgl attr is deprecated, use output_backend")
       return @output_backend == "webgl"
+    tool_events: () ->
+      log.warning("tool_events attr is deprecated, use SelectionGeometry Event")
+      return null
   }
 
 register_with_event(UIEvent, Plot)
